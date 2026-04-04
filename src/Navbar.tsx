@@ -79,7 +79,17 @@ export function Navbar({
                   }}
                 >
                   {portfolio?.wallets.map((wallet) => (
-                    <div key={wallet.address}>
+                    <div
+                      key={wallet.address}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        borderBottom:
+                          wallet === portfolio?.wallets[portfolio.wallets.length - 1]
+                            ? "none"
+                            : "1px solid rgba(255,255,255,0.05)",
+                      }}
+                    >
                       <button
                         onClick={() => {
                           switchWallet(wallet.address);
@@ -87,7 +97,7 @@ export function Navbar({
                           onWalletSwitch?.();
                         }}
                         style={{
-                          width: "100%",
+                          flex: 1,
                           padding: "10px 12px",
                           textAlign: "left",
                           background:
@@ -97,10 +107,6 @@ export function Navbar({
                           cursor: "pointer",
                           fontSize: 12,
                           fontFamily: "inherit",
-                          borderBottom:
-                            wallet === portfolio?.wallets[portfolio.wallets.length - 1]
-                              ? "none"
-                              : "1px solid rgba(255,255,255,0.05)",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "space-between",
@@ -108,6 +114,30 @@ export function Navbar({
                       >
                         <span>{shortenAddress(wallet.address)}</span>
                         {currentWallet === wallet.address && <span>✓</span>}
+                      </button>
+                      <button
+                        onClick={() => removeWallet(wallet.address)}
+                        style={{
+                          padding: "6px 8px",
+                          background: "rgba(239,68,68,0.1)",
+                          border: "1px solid rgba(239,68,68,0.3)",
+                          borderRadius: 4,
+                          color: "#fca5a5",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          fontFamily: "inherit",
+                          fontWeight: 600,
+                          marginRight: 8,
+                          transition: "all 0.2s",
+                        }}
+                        onMouseEnter={(e) => {
+                          (e.target as HTMLButtonElement).style.background = "rgba(239,68,68,0.2)";
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.target as HTMLButtonElement).style.background = "rgba(239,68,68,0.1)";
+                        }}
+                      >
+                        ✕
                       </button>
                     </div>
                   ))}
