@@ -135,108 +135,157 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const addWallet = useCallback(
     async (address: string, chainId: number) => {
-      if (!user) {
-        throw new Error("User not authenticated");
-      }
+      try {
+        if (!user) {
+          throw new Error("User not authenticated. Please log in first.");
+        }
 
-      // Validate address format
-      if (!address || typeof address !== "string") {
-        throw new Error("Invalid wallet address");
-      }
+        // Validate address
+        if (!address || typeof address !== "string") {
+          throw new Error("Invalid wallet address provided");
+        }
 
-      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        throw new Error("Invalid wallet address format");
-      }
+        const cleanAddress = address.trim().toLowerCase();
 
-      // Read current portfolio from state to avoid stale closure
-      return new Promise<void>((resolve, reject) => {
-        setPortfolio((currentPortfolio) => {
-          if (!currentPortfolio) {
-            reject(new Error("Portfolio not available. Please try again."));
-            return currentPortfolio;
-          }
+        if (!/^0x[a-fA-F0-9]{40}$/.test(cleanAddress)) {
+          throw new Error("Wallet address must be a valid Ethereum address (0x + 40 hex characters)");
+        }
 
-          // Check if wallet already exists
-          const lowerAddress = address.toLowerCase();
-          if (currentPortfolio.wallets.some(w => w.address === lowerAddress)) {
-            reject(new Error("This wallet is already connected to your account"));
-            return currentPortfolio;
-          }
+        // Validate chainId
+        if (!chainId || typeof chainId !== "number" || chainId <= 0) {
+          throw new Error("Invalid chain ID");
+        }
 
-          const newWallet: ConnectedWallet = {
-            address: lowerAddress,
-            chainId,
-            connectedAt: Date.now(),
-          };
+        // Read current portfolio from state to avoid stale closure
+        return new Promise<void>((resolve, reject) => {
+          try {
+            setPortfolio((currentPortfolio) => {
+              try {
+                if (!currentPortfolio) {
+                  throw new Error("Portfolio not available. Please refresh and try again.");
+                }
 
-          const updatedPortfolio = {
-            ...currentPortfolio,
-            wallets: [...currentPortfolio.wallets, newWallet],
-            holdings: { ...currentPortfolio.holdings, [lowerAddress]: 0 },
-            buyPrice: { ...currentPortfolio.buyPrice, [lowerAddress]: 0 },
-          };
+                if (!Array.isArray(currentPortfolio.wallets)) {
+                  throw new Error("Portfolio wallets array is invalid");
+                }
 
-          // Save to Firebase
-          set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio)
-            .then(() => {
-              setCurrentWallet(lowerAddress);
-              resolve();
-            })
-            .catch((err) => {
-              reject(new Error(`Failed to save wallet: ${err.message}`));
+                // Check if wallet already exists
+                if (currentPortfolio.wallets.some(w => w?.address === cleanAddress)) {
+                  throw new Error("This wallet is already connected to your account");
+                }
+
+                const newWallet: ConnectedWallet = {
+                  address: cleanAddress,
+                  chainId,
+                  connectedAt: Date.now(),
+                };
+
+                const updatedPortfolio: Portfolio = {
+                  ...currentPortfolio,
+                  wallets: [...currentPortfolio.wallets, newWallet],
+                  holdings: { ...currentPortfolio.holdings, [cleanAddress]: 0 },
+                  buyPrice: { ...currentPortfolio.buyPrice, [cleanAddress]: 0 },
+                };
+
+                // Save to Firebase
+                set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio)
+                  .then(() => {
+                    setCurrentWallet(cleanAddress);
+                    resolve();
+                  })
+                  .catch((err: any) => {
+                    reject(new Error(`Failed to save wallet: ${err?.message || "Unknown error"}`));
+                  });
+
+                return updatedPortfolio;
+              } catch (err: any) {
+                reject(err);
+                return currentPortfolio;
+              }
             });
-
-          return updatedPortfolio;
+          } catch (err: any) {
+            reject(err);
+          }
         });
-      });
+      } catch (err: any) {
+        throw new Error(err?.message || "Failed to add wallet");
+      }
     },
     [user]
   );
 
   const removeWallet = useCallback(
     async (address: string) => {
-      if (!user) return;
+      try {
+        if (!user) {
+          throw new Error("User not authenticated");
+        }
 
-      return new Promise<void>((resolve, reject) => {
-        setPortfolio((currentPortfolio) => {
-          if (!currentPortfolio) {
-            reject(new Error("Portfolio not initialized"));
-            return currentPortfolio;
-          }
+        if (!address || typeof address !== "string") {
+          throw new Error("Invalid wallet address");
+        }
 
-          const updatedPortfolio = {
-            ...currentPortfolio,
-            wallets: currentPortfolio.wallets.filter((w) => w.address !== address.toLowerCase()),
-          };
+        const cleanAddress = address.toLowerCase().trim();
 
-          const holdings = { ...currentPortfolio.holdings };
-          const buyPrice = { ...currentPortfolio.buyPrice };
-          delete holdings[address.toLowerCase()];
-          delete buyPrice[address.toLowerCase()];
-
-          updatedPortfolio.holdings = holdings;
-          updatedPortfolio.buyPrice = buyPrice;
-
-          // Save to Firebase
-          set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio)
-            .then(async () => {
-              // Disconnect from Reown if removing the current wallet
+        return new Promise<void>((resolve, reject) => {
+          try {
+            setPortfolio((currentPortfolio) => {
               try {
-                await appKit.disconnect();
-              } catch (e) {
-                console.warn("Could not disconnect from Reown:", e);
-              }
+                if (!currentPortfolio) {
+                  throw new Error("Portfolio not initialized");
+                }
 
-              if (currentWallet === address.toLowerCase()) {
-                setCurrentWallet(updatedPortfolio.wallets[0]?.address || null);
-              }
-              resolve();
-            })
-            .catch(reject);
+                if (!Array.isArray(currentPortfolio.wallets)) {
+                  throw new Error("Portfolio wallets array is invalid");
+                }
 
-          return updatedPortfolio;
+                const updatedPortfolio: Portfolio = {
+                  ...currentPortfolio,
+                  wallets: currentPortfolio.wallets.filter((w) => w?.address !== cleanAddress),
+                };
+
+                const holdings = { ...currentPortfolio.holdings };
+                const buyPrice = { ...currentPortfolio.buyPrice };
+                delete holdings[cleanAddress];
+                delete buyPrice[cleanAddress];
+
+                updatedPortfolio.holdings = holdings;
+                updatedPortfolio.buyPrice = buyPrice;
+
+                // Save to Firebase
+                set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio)
+                  .then(async () => {
+                    // Disconnect from Reown if removing the current wallet
+                    try {
+                      if (appKit && typeof appKit.disconnect === 'function') {
+                        await appKit.disconnect();
+                      }
+                    } catch (e) {
+                      console.warn("Could not disconnect from Reown:", e);
+                    }
+
+                    if (currentWallet === cleanAddress) {
+                      setCurrentWallet(updatedPortfolio.wallets[0]?.address || null);
+                    }
+                    resolve();
+                  })
+                  .catch((err: any) => {
+                    reject(new Error(`Failed to remove wallet: ${err?.message || "Unknown error"}`));
+                  });
+
+                return updatedPortfolio;
+              } catch (err: any) {
+                reject(err);
+                return currentPortfolio;
+              }
+            });
+          } catch (err: any) {
+            reject(err);
+          }
         });
-      });
+      } catch (err: any) {
+        throw new Error(err?.message || "Failed to remove wallet");
+      }
     },
     [user, currentWallet]
   );

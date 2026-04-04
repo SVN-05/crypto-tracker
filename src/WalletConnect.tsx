@@ -28,38 +28,61 @@ export function WalletConnectModal({
   };
 
   const confirmWalletConnection = async () => {
+    setLoading(true);
+    setError("");
+
     try {
-      setLoading(true);
-      setError("");
-
       // Get the currently connected account from AppKit
-      const account = appKit.getAccount();
-
-      // Validate account
-      if (!account) {
-        setError("Account not available. Please connect your wallet first.");
-        setLoading(false);
-        return;
-      }
-
-      if (!account.address) {
-        setError("Wallet address not available. Please try connecting again.");
-        setLoading(false);
-        return;
-      }
-
-      // Validate address format (should be 42 chars starting with 0x)
-      if (!/^0x[a-fA-F0-9]{40}$/.test(account.address)) {
-        setError("Invalid wallet address format.");
-        setLoading(false);
-        return;
-      }
-
-      // Add wallet to portfolio - wait for it to complete
+      let account: any;
       try {
-        await addWallet(account.address, 137); // 137 = Polygon
+        account = appKit.getAccount();
       } catch (e: any) {
-        const errorMsg = e?.message || "Failed to add wallet";
+        setError("Failed to get wallet account from AppKit");
+        setLoading(false);
+        return;
+      }
+
+      // Validate account exists
+      if (!account) {
+        setError("No wallet connected. Please open Reown Connect and approve the connection first.");
+        setLoading(false);
+        return;
+      }
+
+      // Get address - might be in different properties depending on AppKit version
+      const address = account.address || account.caipAddress || account;
+
+      if (!address || typeof address !== "string") {
+        setError("Could not get wallet address. Please try connecting again.");
+        setLoading(false);
+        return;
+      }
+
+      // Validate address is an Ethereum address (0x + 40 hex chars)
+      if (!address.includes("0x") || address.length < 40) {
+        setError("Invalid wallet address format. Please use a valid Ethereum wallet.");
+        setLoading(false);
+        return;
+      }
+
+      // Extract clean address if needed (handle CAIP format like "eip155:137:0x...")
+      let cleanAddress = address;
+      if (address.includes(":")) {
+        const parts = address.split(":");
+        cleanAddress = parts[parts.length - 1];
+      }
+
+      if (!/^0x[a-fA-F0-9]{40}$/.test(cleanAddress)) {
+        setError("Invalid wallet address format. Please use a valid Ethereum wallet.");
+        setLoading(false);
+        return;
+      }
+
+      // Add wallet to portfolio
+      try {
+        await addWallet(cleanAddress, 137); // 137 = Polygon
+      } catch (addError: any) {
+        const errorMsg = addError?.message || "Failed to add wallet to portfolio";
         setError(errorMsg);
         setLoading(false);
         return;
@@ -71,7 +94,7 @@ export function WalletConnectModal({
       setLoading(false);
       onClose();
     } catch (e: any) {
-      const errorMsg = e?.message || "Failed to add wallet to portfolio";
+      const errorMsg = e?.message || "Unexpected error adding wallet";
       setError(errorMsg);
       setLoading(false);
     }
