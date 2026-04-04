@@ -35,7 +35,7 @@ export function WalletConnectModal({
 
       // Get the currently connected account from AppKit
       const account = appKit.getAccount();
-      console.log("Current account:", account);
+      console.log("📱 Current account from AppKit:", account);
 
       if (!account?.address) {
         setError("No wallet connected. Please connect your wallet first.");
@@ -43,19 +43,30 @@ export function WalletConnectModal({
         return;
       }
 
-      console.log("Adding wallet:", account.address);
+      console.log("💾 Adding wallet to Firebase:", account.address);
       // Add wallet to portfolio - wait for it to complete
-      const result = await addWallet(account.address, 137); // 137 = Polygon
-      console.log("Wallet added successfully:", result);
+      try {
+        await addWallet(account.address, 137); // 137 = Polygon
+        console.log("✅ Wallet added to Firebase successfully");
+      } catch (e: any) {
+        console.error("❌ Error in addWallet:", e);
+        setError(e.message || "Failed to add wallet");
+        setLoading(false);
+        return;
+      }
 
       // Give state updates time to propagate
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 300));
 
+      console.log("🔄 Wallet state should be updated, closing modal...");
       setLoading(false);
-      console.log("Closing modal");
       onClose();
+
+      // Give one more tick for modal to close
+      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log("✨ Modal closed, component should refresh");
     } catch (e: any) {
-      console.error("Error adding wallet:", e);
+      console.error("❌ Error adding wallet:", e);
       setError(e.message || "Failed to add wallet to portfolio");
       setLoading(false);
     }

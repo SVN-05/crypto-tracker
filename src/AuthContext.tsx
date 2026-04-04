@@ -119,53 +119,83 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const addWallet = useCallback(
     async (address: string, chainId: number) => {
-      if (!user || !portfolio) return;
+      if (!user) return;
 
-      const newWallet: ConnectedWallet = {
-        address: address.toLowerCase(),
-        chainId,
-        connectedAt: Date.now(),
-      };
+      // Read current portfolio from state to avoid stale closure
+      return new Promise<void>((resolve, reject) => {
+        setPortfolio((currentPortfolio) => {
+          if (!currentPortfolio) {
+            reject(new Error("Portfolio not initialized"));
+            return currentPortfolio;
+          }
 
-      const updatedPortfolio = {
-        ...portfolio,
-        wallets: [...portfolio.wallets, newWallet],
-        holdings: { ...portfolio.holdings, [address.toLowerCase()]: 0 },
-        buyPrice: { ...portfolio.buyPrice, [address.toLowerCase()]: 0 },
-      };
+          const newWallet: ConnectedWallet = {
+            address: address.toLowerCase(),
+            chainId,
+            connectedAt: Date.now(),
+          };
 
-      await set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio);
-      setPortfolio(updatedPortfolio);
-      setCurrentWallet(address.toLowerCase());
+          const updatedPortfolio = {
+            ...currentPortfolio,
+            wallets: [...currentPortfolio.wallets, newWallet],
+            holdings: { ...currentPortfolio.holdings, [address.toLowerCase()]: 0 },
+            buyPrice: { ...currentPortfolio.buyPrice, [address.toLowerCase()]: 0 },
+          };
+
+          // Save to Firebase
+          set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio)
+            .then(() => {
+              setCurrentWallet(address.toLowerCase());
+              resolve();
+            })
+            .catch(reject);
+
+          return updatedPortfolio;
+        });
+      });
     },
-    [user, portfolio]
+    [user]
   );
 
   const removeWallet = useCallback(
     async (address: string) => {
-      if (!user || !portfolio) return;
+      if (!user) return;
 
-      const updatedPortfolio = {
-        ...portfolio,
-        wallets: portfolio.wallets.filter((w) => w.address !== address.toLowerCase()),
-      };
+      return new Promise<void>((resolve, reject) => {
+        setPortfolio((currentPortfolio) => {
+          if (!currentPortfolio) {
+            reject(new Error("Portfolio not initialized"));
+            return currentPortfolio;
+          }
 
-      const holdings = { ...portfolio.holdings };
-      const buyPrice = { ...portfolio.buyPrice };
-      delete holdings[address.toLowerCase()];
-      delete buyPrice[address.toLowerCase()];
+          const updatedPortfolio = {
+            ...currentPortfolio,
+            wallets: currentPortfolio.wallets.filter((w) => w.address !== address.toLowerCase()),
+          };
 
-      updatedPortfolio.holdings = holdings;
-      updatedPortfolio.buyPrice = buyPrice;
+          const holdings = { ...currentPortfolio.holdings };
+          const buyPrice = { ...currentPortfolio.buyPrice };
+          delete holdings[address.toLowerCase()];
+          delete buyPrice[address.toLowerCase()];
 
-      await set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio);
-      setPortfolio(updatedPortfolio);
+          updatedPortfolio.holdings = holdings;
+          updatedPortfolio.buyPrice = buyPrice;
 
-      if (currentWallet === address.toLowerCase()) {
-        setCurrentWallet(updatedPortfolio.wallets[0]?.address || null);
-      }
+          // Save to Firebase
+          set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio)
+            .then(() => {
+              if (currentWallet === address.toLowerCase()) {
+                setCurrentWallet(updatedPortfolio.wallets[0]?.address || null);
+              }
+              resolve();
+            })
+            .catch(reject);
+
+          return updatedPortfolio;
+        });
+      });
     },
-    [user, portfolio, currentWallet]
+    [user, currentWallet]
   );
 
   const switchWallet = useCallback((address: string) => {
@@ -174,18 +204,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateHoldings = useCallback(
     async (walletAddress: string, holdings: number, buyPrice: number) => {
-      if (!user || !portfolio) return;
+      if (!user) return;
 
-      const updatedPortfolio = {
-        ...portfolio,
-        holdings: { ...portfolio.holdings, [walletAddress.toLowerCase()]: holdings },
-        buyPrice: { ...portfolio.buyPrice, [walletAddress.toLowerCase()]: buyPrice },
-      };
+      return new Promise<void>((resolve, reject) => {
+        setPortfolio((currentPortfolio) => {
+          if (!currentPortfolio) {
+            reject(new Error("Portfolio not initialized"));
+            return currentPortfolio;
+          }
 
-      await set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio);
-      setPortfolio(updatedPortfolio);
+          const updatedPortfolio = {
+            ...currentPortfolio,
+            holdings: { ...currentPortfolio.holdings, [walletAddress.toLowerCase()]: holdings },
+            buyPrice: { ...currentPortfolio.buyPrice, [walletAddress.toLowerCase()]: buyPrice },
+          };
+
+          // Save to Firebase
+          set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio)
+            .then(() => resolve())
+            .catch(reject);
+
+          return updatedPortfolio;
+        });
+      });
     },
-    [user, portfolio]
+    [user]
   );
 
   const getWalletBalance = useCallback(async (walletAddress: string): Promise<number> => {
