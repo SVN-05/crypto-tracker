@@ -21,7 +21,6 @@ export function WalletConnectModal({
       // Open Reown AppKit modal - it handles all the QR code and connection logic
       appKit.open();
     } catch (e: any) {
-      console.error("Reown AppKit error:", e);
       setError("Failed to open wallet connection");
     } finally {
       setLoading(false);
@@ -35,7 +34,6 @@ export function WalletConnectModal({
 
       // Get the currently connected account from AppKit
       const account = appKit.getAccount();
-      console.log("📱 Current account from AppKit:", account);
 
       if (!account?.address) {
         setError("No wallet connected. Please connect your wallet first.");
@@ -43,13 +41,10 @@ export function WalletConnectModal({
         return;
       }
 
-      console.log("💾 Adding wallet to Firebase:", account.address);
       // Add wallet to portfolio - wait for it to complete
       try {
         await addWallet(account.address, 137); // 137 = Polygon
-        console.log("✅ Wallet added to Firebase successfully");
       } catch (e: any) {
-        console.error("❌ Error in addWallet:", e);
         setError(e.message || "Failed to add wallet");
         setLoading(false);
         return;
@@ -58,15 +53,9 @@ export function WalletConnectModal({
       // Give state updates time to propagate
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      console.log("🔄 Wallet state should be updated, closing modal...");
       setLoading(false);
       onClose();
-
-      // Give one more tick for modal to close
-      await new Promise(resolve => setTimeout(resolve, 100));
-      console.log("✨ Modal closed, component should refresh");
     } catch (e: any) {
-      console.error("❌ Error adding wallet:", e);
       setError(e.message || "Failed to add wallet to portfolio");
       setLoading(false);
     }
