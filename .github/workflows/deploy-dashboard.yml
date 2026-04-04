@@ -47,6 +47,7 @@ jobs:
           VITE_FIREBASE_APP_ID=${{ secrets.REACT_APP_FIREBASE_APP_ID }}
           VITE_FIREBASE_DATABASE_URL=${{ secrets.REACT_APP_FIREBASE_DATABASE_URL }}
           VITE_WALLETCONNECT_PROJECT_ID=${{ secrets.WALLETCONNECT_PROJECT_ID }}
+          VITE_ANKR_API_KEY=${{ secrets.ANKR_API_KEY }}
           EOF
 
       - name: Build dashboard

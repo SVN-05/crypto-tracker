@@ -353,8 +353,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return cached.balance;
       }
 
-      // Use MaticVigil's free Polygon RPC (no auth required)
-      const provider = new JsonRpcProvider("https://rpc-mainnet.maticvigil.com/");
+      // Use Ankr's Polygon RPC with API key, fallback to MaticVigil if key not set
+      const ankrKey = import.meta.env.VITE_ANKR_API_KEY;
+      const rpcUrl = ankrKey
+        ? `https://rpc.ankr.com/polygon/${ankrKey}`
+        : "https://rpc-mainnet.maticvigil.com/";
+      const provider = new JsonRpcProvider(rpcUrl);
 
       const TOKEN_ADDRESS = "0x1Bdf71EDe1a4777dB1EebE7232BcdA20d6FC1610";
       const TOKEN_ABI = ["function balanceOf(address account) external view returns (uint256)"];
