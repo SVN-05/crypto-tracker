@@ -256,7 +256,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const getWalletBalance = useCallback(async (walletAddress: string): Promise<number> => {
     try {
-      const provider = new JsonRpcProvider("https://polygon-rpc.com/");
+      // Use Ankr's free Polygon RPC endpoint (more reliable than polygon-rpc.com)
+      const provider = new JsonRpcProvider("https://rpc.ankr.com/polygon");
 
       const TOKEN_ADDRESS = "0x1Bdf71EDe1a4777dB1EebE7232BcdA20d6FC1610";
       const TOKEN_ABI = ["function balanceOf(address account) external view returns (uint256)"];
