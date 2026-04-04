@@ -1030,7 +1030,7 @@ export default function Dashboard() {
                 </div>
                 {autoFetchedBalance !== null ? (
                   <>
-                    <div style={{ ...valStyle, marginTop: 8 }}>{autoFetchedBalance.toFixed(2)}</div>
+                    <div style={{ ...valStyle, marginTop: 8 }}>{autoFetchedBalance.toFixed(4)}</div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 4 }}>From blockchain</div>
                   </>
                 ) : (
