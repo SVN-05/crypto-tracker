@@ -9,6 +9,7 @@ import {
 } from "firebase/auth";
 import { ref, get, set } from "firebase/database";
 import { JsonRpcProvider, Contract, formatUnits } from "ethers";
+import { appKit } from "./reown-config";
 
 export interface ConnectedWallet {
   address: string;
@@ -208,7 +209,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           // Save to Firebase
           set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio)
-            .then(() => {
+            .then(async () => {
+              // Disconnect from Reown if removing the current wallet
+              try {
+                await appKit.disconnect();
+              } catch (e) {
+                console.warn("Could not disconnect from Reown:", e);
+              }
+
               if (currentWallet === address.toLowerCase()) {
                 setCurrentWallet(updatedPortfolio.wallets[0]?.address || null);
               }

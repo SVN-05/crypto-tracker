@@ -10,9 +10,23 @@ export function Navbar({
   const { user, portfolio, currentWallet, logout, switchWallet, removeWallet } = useAuth();
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [walletDropdownOpen, setWalletDropdownOpen] = useState(false);
+  const [removingWallet, setRemovingWallet] = useState<string | null>(null);
 
   const handleLogout = async () => {
     await logout();
+  };
+
+  const handleRemoveWallet = async (address: string) => {
+    try {
+      setRemovingWallet(address);
+      await removeWallet(address);
+      setWalletDropdownOpen(false);
+      onWalletSwitch?.();
+    } catch (e) {
+      console.error("Error removing wallet:", e);
+    } finally {
+      setRemovingWallet(null);
+    }
   };
 
   const shortenAddress = (addr: string) => {
@@ -116,28 +130,37 @@ export function Navbar({
                         {currentWallet === wallet.address && <span>✓</span>}
                       </button>
                       <button
-                        onClick={() => removeWallet(wallet.address)}
+                        onClick={() => handleRemoveWallet(wallet.address)}
+                        disabled={removingWallet === wallet.address}
                         style={{
                           padding: "6px 8px",
-                          background: "rgba(239,68,68,0.1)",
+                          background:
+                            removingWallet === wallet.address
+                              ? "rgba(239,68,68,0.2)"
+                              : "rgba(239,68,68,0.1)",
                           border: "1px solid rgba(239,68,68,0.3)",
                           borderRadius: 4,
                           color: "#fca5a5",
-                          cursor: "pointer",
+                          cursor: removingWallet === wallet.address ? "not-allowed" : "pointer",
                           fontSize: 12,
                           fontFamily: "inherit",
                           fontWeight: 600,
                           marginRight: 8,
                           transition: "all 0.2s",
+                          opacity: removingWallet === wallet.address ? 0.6 : 1,
                         }}
                         onMouseEnter={(e) => {
-                          (e.target as HTMLButtonElement).style.background = "rgba(239,68,68,0.2)";
+                          if (removingWallet !== wallet.address) {
+                            (e.target as HTMLButtonElement).style.background = "rgba(239,68,68,0.2)";
+                          }
                         }}
                         onMouseLeave={(e) => {
-                          (e.target as HTMLButtonElement).style.background = "rgba(239,68,68,0.1)";
+                          if (removingWallet !== wallet.address) {
+                            (e.target as HTMLButtonElement).style.background = "rgba(239,68,68,0.1)";
+                          }
                         }}
                       >
-                        ✕
+                        {removingWallet === wallet.address ? "..." : "✕"}
                       </button>
                     </div>
                   ))}
