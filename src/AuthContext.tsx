@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { auth, db } from "./firebase-config";
 import {
   createUserWithEmailAndPassword,
@@ -50,6 +50,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [currentWallet, setCurrentWallet] = useState<string | null>(null);
+
+  // Cache for wallet balances to prevent continuous API calls
+  const balanceCacheRef = useRef<Map<string, { balance: number; timestamp: number }>>(new Map());
 
   // Load portfolio from Firebase
   const loadPortfolio = useCallback(async (uid: string) => {
@@ -337,18 +340,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const getWalletBalance = useCallback(async (walletAddress: string): Promise<number> => {
     try {
-      // Use Ankr's free Polygon RPC endpoint (more reliable than polygon-rpc.com)
-      const provider = new JsonRpcProvider("https://rpc.ankr.com/polygon");
+      if (!walletAddress) return 0;
+
+      const cleanAddress = walletAddress.toLowerCase();
+      const cache = balanceCacheRef.current;
+      const now = Date.now();
+      const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+      // Check if we have a recent cached result
+      const cached = cache.get(cleanAddress);
+      if (cached && now - cached.timestamp < CACHE_DURATION) {
+        return cached.balance;
+      }
+
+      // Use MaticVigil's free Polygon RPC (no auth required)
+      const provider = new JsonRpcProvider("https://rpc-mainnet.maticvigil.com/");
 
       const TOKEN_ADDRESS = "0x1Bdf71EDe1a4777dB1EebE7232BcdA20d6FC1610";
       const TOKEN_ABI = ["function balanceOf(address account) external view returns (uint256)"];
 
       const contract = new Contract(TOKEN_ADDRESS, TOKEN_ABI, provider);
-      const balance = await contract.balanceOf(walletAddress);
+      const balance = await contract.balanceOf(cleanAddress);
+      const balanceNumber = parseFloat(formatUnits(balance, 18));
 
-      return parseFloat(formatUnits(balance, 18));
-    } catch (e) {
-      console.error("Error fetching balance:", e);
+      // Cache the result
+      cache.set(cleanAddress, { balance: balanceNumber, timestamp: now });
+
+      return balanceNumber;
+    } catch (e: any) {
+      console.error("Error fetching balance from RPC:", e?.message || e);
+      // Return 0 on error but don't retry immediately - let the cache expire
       return 0;
     }
   }, []);
