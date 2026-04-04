@@ -139,6 +139,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("User not authenticated");
       }
 
+      // Validate address format
+      if (!address || typeof address !== "string") {
+        throw new Error("Invalid wallet address");
+      }
+
+      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        throw new Error("Invalid wallet address format");
+      }
+
       // Read current portfolio from state to avoid stale closure
       return new Promise<void>((resolve, reject) => {
         setPortfolio((currentPortfolio) => {
@@ -148,13 +157,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
 
           // Check if wallet already exists
-          if (currentPortfolio.wallets.some(w => w.address === address.toLowerCase())) {
-            reject(new Error("Wallet already connected"));
+          const lowerAddress = address.toLowerCase();
+          if (currentPortfolio.wallets.some(w => w.address === lowerAddress)) {
+            reject(new Error("This wallet is already connected to your account"));
             return currentPortfolio;
           }
 
           const newWallet: ConnectedWallet = {
-            address: address.toLowerCase(),
+            address: lowerAddress,
             chainId,
             connectedAt: Date.now(),
           };
@@ -162,14 +172,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const updatedPortfolio = {
             ...currentPortfolio,
             wallets: [...currentPortfolio.wallets, newWallet],
-            holdings: { ...currentPortfolio.holdings, [address.toLowerCase()]: 0 },
-            buyPrice: { ...currentPortfolio.buyPrice, [address.toLowerCase()]: 0 },
+            holdings: { ...currentPortfolio.holdings, [lowerAddress]: 0 },
+            buyPrice: { ...currentPortfolio.buyPrice, [lowerAddress]: 0 },
           };
 
           // Save to Firebase
           set(ref(db, `users/${user.uid}/portfolio`), updatedPortfolio)
             .then(() => {
-              setCurrentWallet(address.toLowerCase());
+              setCurrentWallet(lowerAddress);
               resolve();
             })
             .catch((err) => {

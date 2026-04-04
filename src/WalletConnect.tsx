@@ -35,8 +35,22 @@ export function WalletConnectModal({
       // Get the currently connected account from AppKit
       const account = appKit.getAccount();
 
-      if (!account?.address) {
-        setError("No wallet connected. Please connect your wallet first.");
+      // Validate account
+      if (!account) {
+        setError("Account not available. Please connect your wallet first.");
+        setLoading(false);
+        return;
+      }
+
+      if (!account.address) {
+        setError("Wallet address not available. Please try connecting again.");
+        setLoading(false);
+        return;
+      }
+
+      // Validate address format (should be 42 chars starting with 0x)
+      if (!/^0x[a-fA-F0-9]{40}$/.test(account.address)) {
+        setError("Invalid wallet address format.");
         setLoading(false);
         return;
       }
@@ -45,7 +59,8 @@ export function WalletConnectModal({
       try {
         await addWallet(account.address, 137); // 137 = Polygon
       } catch (e: any) {
-        setError(e.message || "Failed to add wallet");
+        const errorMsg = e?.message || "Failed to add wallet";
+        setError(errorMsg);
         setLoading(false);
         return;
       }
@@ -56,7 +71,8 @@ export function WalletConnectModal({
       setLoading(false);
       onClose();
     } catch (e: any) {
-      setError(e.message || "Failed to add wallet to portfolio");
+      const errorMsg = e?.message || "Failed to add wallet to portfolio";
+      setError(errorMsg);
       setLoading(false);
     }
   };
