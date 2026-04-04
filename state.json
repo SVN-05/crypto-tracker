@@ -1,13 +1,55 @@
 {
-  "lastPrice": 0,
-  "lastCheckAt": "",
+  "lastPrice": 0.8636,
+  "lastCheckAt": "2026-04-04T18:51:44.185Z",
   "thresholds": [
-    { "id": "above_1", "type": "above", "price": 1.0, "label": "CES crossed $1.00", "triggered": false },
-    { "id": "above_1_5", "type": "above", "price": 1.5, "label": "CES crossed $1.50", "triggered": false },
-    { "id": "above_2", "type": "above", "price": 2.0, "label": "CES crossed $2.00", "triggered": false },
-    { "id": "above_3", "type": "above", "price": 3.0, "label": "CES crossed $3.00", "triggered": false },
-    { "id": "above_5", "type": "above", "price": 5.0, "label": "CES crossed $5.00", "triggered": false },
-    { "id": "below_0_5", "type": "below", "price": 0.5, "label": "CES dropped below $0.50", "triggered": false },
-    { "id": "below_0_3", "type": "below", "price": 0.3, "label": "CES dropped below $0.30", "triggered": false }
+    {
+      "id": "above_1",
+      "type": "above",
+      "price": 1,
+      "label": "CES crossed $1.00",
+      "triggered": false
+    },
+    {
+      "id": "above_1_5",
+      "type": "above",
+      "price": 1.5,
+      "label": "CES crossed $1.50",
+      "triggered": false
+    },
+    {
+      "id": "above_2",
+      "type": "above",
+      "price": 2,
+      "label": "CES crossed $2.00",
+      "triggered": false
+    },
+    {
+      "id": "above_3",
+      "type": "above",
+      "price": 3,
+      "label": "CES crossed $3.00",
+      "triggered": false
+    },
+    {
+      "id": "above_5",
+      "type": "above",
+      "price": 5,
+      "label": "CES crossed $5.00",
+      "triggered": false
+    },
+    {
+      "id": "below_0_5",
+      "type": "below",
+      "price": 0.5,
+      "label": "CES dropped below $0.50",
+      "triggered": false
+    },
+    {
+      "id": "below_0_3",
+      "type": "below",
+      "price": 0.3,
+      "label": "CES dropped below $0.30",
+      "triggered": false
+    }
   ]
 }
