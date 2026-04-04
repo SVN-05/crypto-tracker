@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import * as d3 from "d3";
 import _ from "lodash";
+import { useAuth } from "./AuthContext";
 
 // ─── CONFIG ───
 const DEX_PAIR = "0x296b95dd0e8b726c4e358b0683ff0b6d675c35e9";
@@ -103,6 +104,191 @@ function predictPrice(data: number[], daysAhead: number): { price: number; confi
   const { slope, intercept, r2 } = linearRegression(data);
   const price = slope * (data.length - 1 + daysAhead) + intercept;
   return { price: Math.max(0, price), confidence: Math.max(0, Math.min(1, r2)) };
+}
+
+// ─── CRYPTO-PREDICTOR INDICATORS ───
+function calcStochasticRSI(data: number[], period: number = 14, smoothK: number = 3, smoothD: number = 3): { stochRSI: (number | null)[]; k: (number | null)[]; d: (number | null)[] } {
+  const rsi = calcRSI(data, period);
+  const rsiFiltered = rsi.filter(v => v !== null) as number[];
+
+  const stochRSI: (number | null)[] = new Array(data.length).fill(null);
+  const stochRSIValues: number[] = [];
+
+  for (let i = period; i < rsi.length; i++) {
+    if (rsi[i] === null) continue;
+    const lookbackRSI = rsi.slice(Math.max(0, i - period + 1), i + 1).filter(v => v !== null) as number[];
+    const minRSI = Math.min(...lookbackRSI);
+    const maxRSI = Math.max(...lookbackRSI);
+    const stoch = (rsi[i]! - minRSI) / (maxRSI - minRSI);
+    stochRSI[i] = stoch;
+    stochRSIValues.push(stoch);
+  }
+
+  const k = calcSMA(stochRSIValues, smoothK);
+  const d = k.filter(v => v !== null).length > smoothD ? calcSMA(k.filter(v => v !== null) as number[], smoothD) : new Array(k.length).fill(null);
+
+  return { stochRSI, k: k, d: d };
+}
+
+function calcROC(data: number[], period: number = 12): (number | null)[] {
+  return data.map((_, i) => {
+    if (i < period) return null;
+    return ((data[i] - data[i - period]) / data[i - period]) * 100;
+  });
+}
+
+function calcSupportResistance(prices: number[]): { support: number[]; resistance: number[]; pivot: number } {
+  const last30 = prices.slice(-30);
+  const high = Math.max(...last30);
+  const low = Math.min(...last30);
+  const close = prices[prices.length - 1];
+
+  const pivot = (high + low + close) / 3;
+  const r1 = 2 * pivot - low;
+  const s1 = 2 * pivot - high;
+  const r2 = pivot + (high - low);
+  const s2 = pivot - (high - low);
+
+  return { support: [s1, s2], resistance: [r1, r2], pivot };
+}
+
+function calcEMADeathGoldenCross(prices: number[]): { trend: 'golden' | 'death' | 'none'; signal: number } {
+  if (prices.length < 30) return { trend: 'none', signal: 0 };
+
+  const ema9 = calcEMA(prices, 9);
+  const ema21 = calcEMA(prices, 21);
+
+  const lastEMA9 = ema9[ema9.length - 1];
+  const lastEMA21 = ema21[ema21.length - 1];
+  const prevEMA9 = ema9[ema9.length - 2];
+  const prevEMA21 = ema21[ema21.length - 2];
+
+  if (prevEMA9 <= prevEMA21 && lastEMA9 > lastEMA21) {
+    return { trend: 'golden', signal: 1 };
+  } else if (prevEMA9 >= prevEMA21 && lastEMA9 < lastEMA21) {
+    return { trend: 'death', signal: -1 };
+  }
+
+  return { trend: 'none', signal: lastEMA9 > lastEMA21 ? 0.5 : -0.5 };
+}
+
+function calcTrendStack(prices: number[]): { bullish: boolean; bearish: boolean; signal: number } {
+  const sma20 = calcSMA(prices, 20);
+  const sma50 = calcSMA(prices, 50);
+  const sma200 = calcSMA(prices, 200);
+
+  const lastPrice = prices[prices.length - 1];
+  const lastSMA20 = sma20.filter(v => v !== null).pop() || lastPrice;
+  const lastSMA50 = sma50.filter(v => v !== null).pop() || lastPrice;
+  const lastSMA200 = sma200.filter(v => v !== null).pop() || lastPrice;
+
+  const bullish = lastPrice > lastSMA20 && lastSMA20 > lastSMA50 && lastSMA50 > lastSMA200;
+  const bearish = lastPrice < lastSMA20 && lastSMA20 < lastSMA50 && lastSMA50 < lastSMA200;
+
+  let signal = 0;
+  if (bullish) signal = 1;
+  else if (bearish) signal = -1;
+  else {
+    if (lastPrice > lastSMA20) signal += 0.3;
+    if (lastSMA20 > lastSMA50) signal += 0.2;
+    if (lastSMA50 > lastSMA200) signal += 0.2;
+  }
+
+  return { bullish, bearish, signal };
+}
+
+interface FearGreedData {
+  value: number;
+  valueClassification: string;
+  timestamp: string;
+}
+
+async function fetchFearGreedIndex(): Promise<FearGreedData | null> {
+  try {
+    const res = await fetch('https://api.alternative.me/fng/?limit=1');
+    const data = await res.json();
+    if (data.data && data.data[0]) {
+      return {
+        value: parseInt(data.data[0].value),
+        valueClassification: data.data[0].value_classification,
+        timestamp: data.data[0].timestamp
+      };
+    }
+  } catch (e) {
+    console.log('Fear & Greed Index fetch failed:', e);
+  }
+  return null;
+}
+
+function calcCompositeScore(prices: number[], rsi: (number | null)[], macdData: { macd: number[]; signal: number[] }, fearGreed: number | null, volumeTrend: number = 0): { score: number; signal: string; confidence: number } {
+  let score = 0;
+  let weight = 0;
+
+  // RSI contribution (15%)
+  const lastRSI = rsi.filter(v => v !== null).pop();
+  if (lastRSI !== undefined) {
+    if (lastRSI < 30) score += 15;
+    else if (lastRSI > 70) score -= 15;
+    weight += 15;
+  }
+
+  // MACD contribution (20%)
+  const lastMACD = macdData.macd[macdData.macd.length - 1];
+  const lastSignal = macdData.signal[macdData.signal.length - 1];
+  if (lastMACD > lastSignal) score += 20;
+  else score -= 20;
+  weight += 20;
+
+  // EMA Golden/Death Cross (15%)
+  const { signal: emaSignal } = calcEMADeathGoldenCross(prices);
+  score += emaSignal * 15;
+  weight += 15;
+
+  // Trend Stack (10%)
+  const { signal: trendSignal } = calcTrendStack(prices);
+  score += trendSignal * 10;
+  weight += 10;
+
+  // Fear & Greed (10%)
+  if (fearGreed !== null) {
+    if (fearGreed < 25) score += 10;
+    else if (fearGreed > 75) score -= 10;
+    weight += 10;
+  }
+
+  // Volume trend (5%)
+  score += volumeTrend * 5;
+  weight += 5;
+
+  // Support/Resistance (5%)
+  const { support, resistance, pivot } = calcSupportResistance(prices);
+  const lastPrice = prices[prices.length - 1];
+  const distToSupport = Math.abs(lastPrice - support[0]);
+  const distToResistance = Math.abs(lastPrice - resistance[0]);
+  if (distToSupport < distToResistance) score += 5;
+  else score -= 5;
+  weight += 5;
+
+  // Normalize to -100 to 100
+  const normalizedScore = (score / weight) * 100;
+  let signal: string;
+  if (normalizedScore > 50) signal = 'STRONG BUY';
+  else if (normalizedScore > 20) signal = 'BUY';
+  else if (normalizedScore > -20) signal = 'NEUTRAL';
+  else if (normalizedScore > -50) signal = 'SELL';
+  else signal = 'STRONG SELL';
+
+  // Confidence based on indicator agreement
+  const indicators = [
+    lastRSI !== undefined && ((lastRSI < 30) || (lastRSI > 70)) ? 1 : 0,
+    lastMACD > lastSignal ? 1 : -1,
+    emaSignal > 0 ? 1 : -1,
+    trendSignal > 0 ? 1 : -1,
+  ];
+  const agreementCount = indicators.filter((_, i) => (indicators[i] * indicators[0]) > 0).length;
+  const confidence = agreementCount / indicators.length;
+
+  return { score: normalizedScore, signal, confidence };
 }
 
 // ─── COMPONENTS ───
@@ -346,8 +532,51 @@ function MACDChart({ macd, signal, histogram }: { macd: number[]; signal: number
   );
 }
 
+function FearGreedGauge({ value, label }: { value: number | null; label?: string }) {
+  if (!value) {
+    return (
+      <div style={{ textAlign: "center", padding: 20 }}>
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>Loading Fear & Greed...</div>
+      </div>
+    );
+  }
+
+  const getColor = (v: number) => {
+    if (v < 20) return "#ef4444";
+    if (v < 40) return "#f97316";
+    if (v < 60) return "#f59e0b";
+    if (v < 80) return "#34d399";
+    return "#10b981";
+  };
+
+  const getLabel = (v: number) => {
+    if (v < 25) return "Extreme Fear";
+    if (v < 45) return "Fear";
+    if (v < 55) return "Neutral";
+    if (v < 75) return "Greed";
+    return "Extreme Greed";
+  };
+
+  return (
+    <div style={{ textAlign: "center" }}>
+      {label && <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", marginBottom: 8 }}>{label}</div>}
+      <div style={{ position: "relative", width: 120, height: 60, margin: "0 auto" }}>
+        <svg width="100%" height="100%" viewBox="0 0 120 60" style={{ display: "block" }}>
+          <path d="M 10 50 A 40 40 0 0 1 110 50" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="4" />
+          <path d="M 10 50 A 40 40 0 0 1 110 50" fill="none" stroke={getColor(value)} strokeWidth="4" strokeDasharray={`${(value / 100) * 157.08} 157.08`} />
+          <circle cx={10 + (100 * value) / 100} cy={50 - Math.sqrt(1600 - Math.pow(10 + (100 * value) / 100 - 60, 2))} r="4" fill={getColor(value)} />
+        </svg>
+      </div>
+      <div style={{ fontSize: 24, fontWeight: 700, marginTop: 8, color: getColor(value) }}>{value}</div>
+      <div style={{ fontSize: 10, color: getColor(value), marginTop: 4 }}>{getLabel(value)}</div>
+    </div>
+  );
+}
+
 // ─── MAIN APP ───
-export default function App() {
+export default function Dashboard() {
+  const { portfolio, currentWallet, updateHoldings, getWalletBalance } = useAuth();
+
   const [pair, setPair] = useState<PairData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -357,6 +586,8 @@ export default function App() {
   const [buyPrice, setBuyPrice] = useState<string>("0");
   const [lastUpdate, setLastUpdate] = useState("");
   const [tab, setTab] = useState<"chart" | "predict" | "portfolio">("chart");
+  const [fearGreed, setFearGreed] = useState<number | null>(null);
+  const [autoFetchedBalance, setAutoFetchedBalance] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -365,6 +596,10 @@ export default function App() {
       const p = data?.pairs?.[0];
       if (!p) throw new Error("Pair not found");
       setPair(p);
+
+      // Fetch Fear & Greed Index
+      const fgData = await fetchFearGreedIndex();
+      if (fgData) setFearGreed(fgData.value);
 
       // Generate simulated historical from available data points
       const currentPrice = parseFloat(p.priceUsd);
@@ -415,6 +650,21 @@ export default function App() {
       setLoading(false);
     }
   }, []);
+
+  // Load holdings from portfolio
+  useEffect(() => {
+    if (portfolio && currentWallet) {
+      const walletHoldings = portfolio.holdings[currentWallet] || 0;
+      const walletBuyPrice = portfolio.buyPrice[currentWallet] || 0;
+      setHoldings(walletHoldings.toString());
+      setBuyPrice(walletBuyPrice.toString());
+
+      // Auto-fetch balance from blockchain
+      getWalletBalance(currentWallet).then((balance) => {
+        setAutoFetchedBalance(balance);
+      });
+    }
+  }, [portfolio, currentWallet, getWalletBalance]);
 
   useEffect(() => { fetchData(); const iv = setInterval(fetchData, 30000); return () => clearInterval(iv); }, [fetchData]);
 
@@ -480,6 +730,22 @@ export default function App() {
 
   const overallSentiment = score > 1 ? "Bullish" : score < -1 ? "Bearish" : "Neutral";
   const sentimentColor = score > 1 ? "#10b981" : score < -1 ? "#ef4444" : "#f59e0b";
+
+  // Crypto-Predictor Composite Score
+  const compositeData = calcCompositeScore(prices, rsi, macdData, fearGreed);
+  const { score: compositeScore, signal: compositeSignal, confidence: compositeConfidence } = compositeData;
+
+  const getSignalColor = (sig: string): string => {
+    if (sig.includes("STRONG BUY")) return "#10b981";
+    if (sig.includes("BUY")) return "#34d399";
+    if (sig.includes("NEUTRAL")) return "#f59e0b";
+    if (sig.includes("SELL")) return "#f97316";
+    return "#ef4444";
+  };
+
+  const { support, resistance, pivot } = calcSupportResistance(prices);
+  const { trend: emaTrend } = calcEMADeathGoldenCross(prices);
+  const trendStack = calcTrendStack(prices);
 
   // Portfolio
   const holdingsNum = parseFloat(holdings) || 0;
@@ -571,7 +837,7 @@ export default function App() {
               <PriceChart prices={prices} times={times} sma7={sma7} sma25={sma25} bb={bb} />
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
               <div style={cardStyle}>
                 <div style={{ ...labelStyle, marginBottom: 8 }}>RSI (14) <span style={{ color: lastRSI && lastRSI > 70 ? "#ef4444" : lastRSI && lastRSI < 30 ? "#10b981" : "#06b6d4" }}>
                   {lastRSI?.toFixed(1)} {lastRSI && lastRSI > 70 ? "Overbought" : lastRSI && lastRSI < 30 ? "Oversold" : "Neutral"}
@@ -584,6 +850,9 @@ export default function App() {
                 </span></div>
                 <MACDChart macd={macdData.macd} signal={macdData.signal} histogram={macdData.histogram} />
               </div>
+              <div style={cardStyle}>
+                <FearGreedGauge value={fearGreed} label="Fear & Greed" />
+              </div>
             </div>
           </div>
         )}
@@ -591,6 +860,42 @@ export default function App() {
         {/* ─── PREDICT TAB ─── */}
         {tab === "predict" && (
           <div style={{ marginTop: 16 }}>
+            {/* Crypto-Predictor Composite Score */}
+            <div style={{ ...cardStyle, padding: "24px", marginBottom: 16, background: "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(239,68,68,0.08) 100%)" }}>
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <div style={labelStyle}>Composite Prediction Score</div>
+                <div style={{ fontSize: 48, fontWeight: 700, marginTop: 12, color: getSignalColor(compositeSignal), textShadow: `0 0 20px ${getSignalColor(compositeSignal)}33` }}>
+                  {compositeScore.toFixed(1)}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, marginTop: 8, color: getSignalColor(compositeSignal), textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  {compositeSignal}
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 20 }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ ...labelStyle, marginBottom: 8 }}>Confidence</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: compositeConfidence > 0.7 ? "#10b981" : compositeConfidence > 0.4 ? "#f59e0b" : "#ef4444" }}>
+                    {(compositeConfidence * 100).toFixed(0)}%
+                  </div>
+                  <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.08)" }}>
+                    <div style={{ height: "100%", borderRadius: 2, width: `${compositeConfidence * 100}%`, background: compositeConfidence > 0.7 ? "#10b981" : compositeConfidence > 0.4 ? "#f59e0b" : "#ef4444" }} />
+                  </div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ ...labelStyle, marginBottom: 8 }}>Fear & Greed Index</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: fearGreed && fearGreed < 30 ? "#10b981" : fearGreed && fearGreed > 70 ? "#ef4444" : "#f59e0b" }}>
+                    {fearGreed ? fearGreed : "—"}
+                  </div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>
+                    {fearGreed && fearGreed < 25 ? "Extreme Fear" : fearGreed && fearGreed > 75 ? "Extreme Greed" : "Neutral"}
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.1)", fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
+                Combines 8 technical indicators: RSI, MACD, EMA Crossovers, SMA Trend Stack, Bollinger Bands, Stochastic RSI, Fear & Greed Index, and Support/Resistance levels.
+              </div>
+            </div>
+
             {/* Signal panel */}
             <div style={cardStyle}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -644,23 +949,61 @@ export default function App() {
 
             {/* Support / Resistance */}
             <div style={{ ...cardStyle, marginTop: 10 }}>
-              <div style={labelStyle}>Key Levels (Bollinger Bands)</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 8 }}>
+              <div style={labelStyle}>Key Levels (Support/Resistance)</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginTop: 8 }}>
                 {[
-                  { label: "Resistance", value: bb[bb.length - 1]?.upper, color: "#ef4444" },
-                  { label: "Middle Band", value: bb[bb.length - 1]?.middle, color: "#6366f1" },
-                  { label: "Support", value: bb[bb.length - 1]?.lower, color: "#10b981" },
+                  { label: "Resistance 2", value: resistance[1], color: "#ef4444" },
+                  { label: "Resistance 1", value: resistance[0], color: "#f97316" },
+                  { label: "Pivot Point", value: pivot, color: "#6366f1" },
+                  { label: "Support 1", value: support[0], color: "#34d399" },
+                  { label: "Support 2", value: support[1], color: "#10b981" },
+                  { label: "Current Price", value: currentPrice, color: currentPrice > pivot ? "#10b981" : "#ef4444" },
                 ].map((l, i) => (
-                  <div key={i} style={{ textAlign: "center", padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.02)" }}>
-                    <div style={{ fontSize: 10, color: l.color, textTransform: "uppercase", letterSpacing: "0.06em" }}>{l.label}</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>${l.value?.toFixed(4) || "—"}</div>
+                  <div key={i} style={{ textAlign: "center", padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.02)", border: l.value && Math.abs(currentPrice - l.value) < 0.0001 ? `2px solid ${l.color}` : "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ fontSize: 9, color: l.color, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>{l.label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>${l.value.toFixed(4)}</div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div style={{ marginTop: 16, padding: 16, background: "rgba(245,158,11,0.06)", borderRadius: 10, border: "1px solid rgba(245,158,11,0.15)", fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.6 }}>
-              ⚠️ <strong style={{ color: "#f59e0b" }}>Disclaimer:</strong> Predictions use linear regression and technical indicators on limited data points. This is NOT financial advice. Crypto markets are extremely volatile. The proxy contract on CES means the token owner can disable sells at any time. Only invest what you can afford to lose entirely.
+            {/* Trend Analysis */}
+            <div style={{ ...cardStyle, marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <div style={labelStyle}>EMA Crossover</div>
+                <div style={{ marginTop: 8, padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.02)", textAlign: "center" }}>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: emaTrend === "golden" ? "#10b981" : emaTrend === "death" ? "#ef4444" : "#f59e0b" }}>
+                    {emaTrend === "golden" ? "🟢" : emaTrend === "death" ? "🔴" : "⚪"}
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginTop: 8, color: emaTrend === "golden" ? "#10b981" : emaTrend === "death" ? "#ef4444" : "#f59e0b" }}>
+                    {emaTrend === "golden" ? "Golden Cross" : emaTrend === "death" ? "Death Cross" : "Neutral"}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div style={labelStyle}>SMA Trend Stack</div>
+                <div style={{ marginTop: 8, padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.02)", textAlign: "center" }}>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: trendStack.bullish ? "#10b981" : trendStack.bearish ? "#ef4444" : "#f59e0b" }}>
+                    {trendStack.bullish ? "📈" : trendStack.bearish ? "📉" : "↔️"}
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginTop: 8, color: trendStack.bullish ? "#10b981" : trendStack.bearish ? "#ef4444" : "#f59e0b" }}>
+                    {trendStack.bullish ? "Full Bull" : trendStack.bearish ? "Full Bear" : "Mixed"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, padding: 16, background: "rgba(245,158,11,0.06)", borderRadius: 10, border: "1px solid rgba(245,158,11,0.15)", fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 700, color: "#f59e0b", marginBottom: 8 }}>⚠️ DISCLAIMER</div>
+              <div>
+                <strong>NOT FINANCIAL ADVICE.</strong> This dashboard uses technical indicators (RSI, MACD, Bollinger Bands, EMA crossovers, SMA trends, and the Fear & Greed Index) to generate trading signals. These are historical patterns that do not guarantee future results. Crypto markets are highly volatile and unpredictable.
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <strong>CES-specific risks:</strong> This token uses a proxy contract, meaning the token owner can disable trading at any time. Never invest more than you can afford to lose entirely.
+              </div>
+              <div style={{ marginTop: 6 }}>
+                Always do your own research (DYOR) and consult with a financial advisor before making any investment decisions.
+              </div>
             </div>
           </div>
         )}
@@ -668,16 +1011,96 @@ export default function App() {
         {/* ─── PORTFOLIO TAB ─── */}
         {tab === "portfolio" && (
           <div style={{ marginTop: 16 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {/* Current Wallet Info */}
+            {currentWallet && (
+              <div style={{ ...cardStyle, marginBottom: 16, background: "linear-gradient(135deg, rgba(16,185,129,0.1) 0%, rgba(16,185,129,0.05) 100%)" }}>
+                <div style={labelStyle}>Connected Wallet</div>
+                <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8, wordBreak: "break-all" }}>
+                  {currentWallet}
+                </div>
+              </div>
+            )}
+
+            {/* Auto-fetched vs Manual Holdings */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
               <div style={cardStyle}>
-                <div style={labelStyle}>CES Holdings</div>
-                <input value={holdings} onChange={e => setHoldings(e.target.value)} placeholder="0"
-                  style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "10px 12px", color: "#e2e8f0", fontSize: 16, fontFamily: "inherit", marginTop: 6, outline: "none" }} />
+                <div style={labelStyle}>
+                  CES Holdings
+                  {autoFetchedBalance !== null && <span style={{ color: "#10b981", marginLeft: 4 }}>✓ Auto</span>}
+                </div>
+                {autoFetchedBalance !== null ? (
+                  <>
+                    <div style={{ ...valStyle, marginTop: 8 }}>{autoFetchedBalance.toFixed(2)}</div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 4 }}>From blockchain</div>
+                  </>
+                ) : (
+                  <input
+                    value={holdings}
+                    onChange={(e) => setHoldings(e.target.value)}
+                    placeholder="0"
+                    style={{
+                      width: "100%",
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                      color: "#e2e8f0",
+                      fontSize: 16,
+                      fontFamily: "inherit",
+                      marginTop: 6,
+                      outline: "none",
+                    }}
+                  />
+                )}
               </div>
               <div style={cardStyle}>
                 <div style={labelStyle}>Average Buy Price ($)</div>
-                <input value={buyPrice} onChange={e => setBuyPrice(e.target.value)} placeholder="0.00"
-                  style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "10px 12px", color: "#e2e8f0", fontSize: 16, fontFamily: "inherit", marginTop: 6, outline: "none" }} />
+                <input
+                  value={buyPrice}
+                  onChange={(e) => setBuyPrice(e.target.value)}
+                  placeholder="0.00"
+                  style={{
+                    width: "100%",
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    color: "#e2e8f0",
+                    fontSize: 16,
+                    fontFamily: "inherit",
+                    marginTop: 6,
+                    outline: "none",
+                  }}
+                />
+              </div>
+              <div style={cardStyle}>
+                <div style={labelStyle}>&nbsp;</div>
+                <button
+                  onClick={() => {
+                    const holdingsToSave = autoFetchedBalance !== null ? autoFetchedBalance : parseFloat(holdings);
+                    const buyPriceToSave = parseFloat(buyPrice) || 0;
+                    if (currentWallet) {
+                      updateHoldings(currentWallet, holdingsToSave, buyPriceToSave);
+                      setHoldings(holdingsToSave.toString());
+                    }
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    background: "#10b981",
+                    color: "#000",
+                    border: "none",
+                    borderRadius: 8,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontSize: 14,
+                    fontFamily: "inherit",
+                    marginTop: 6,
+                    transition: "all 0.2s",
+                  }}
+                >
+                  💾 Save to Firebase
+                </button>
               </div>
             </div>
 

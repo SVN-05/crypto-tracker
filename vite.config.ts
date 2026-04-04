@@ -3,8 +3,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  base: "/crypto-tracker/",
+  base: "/ces-price-tracker/",
   build: {
-    outDir: "dist-dashboard",
+    outDir: "dist",
   },
 });

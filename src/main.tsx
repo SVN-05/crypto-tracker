@@ -1,4 +1,9 @@
 import { createRoot } from "react-dom/client";
-import App from "./ces-dashboard";
+import AppWrapper from "./App";
+import { AuthProvider } from "./AuthContext";
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <AuthProvider>
+    <AppWrapper />
+  </AuthProvider>
+);

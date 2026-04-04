@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths:
-      - "src/ces-dashboard.tsx"
-      - "src/main.tsx"
+      - "src/**"
       - "index.html"
       - "vite.config.ts"
       - "package.json"
+      - ".github/workflows/deploy-dashboard.yml"
   workflow_dispatch:
 
 permissions:
@@ -36,13 +36,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create .env file from secrets
+        run: |
+          cat > .env << EOF
+          REACT_APP_FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
+          REACT_APP_FIREBASE_AUTH_DOMAIN=${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          REACT_APP_FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+          REACT_APP_FIREBASE_STORAGE_BUCKET=${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          REACT_APP_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          REACT_APP_FIREBASE_APP_ID=${{ secrets.FIREBASE_APP_ID }}
+          REACT_APP_FIREBASE_DATABASE_URL=${{ secrets.FIREBASE_DATABASE_URL }}
+          EOF
+
       - name: Build dashboard
         run: npm run build:dashboard
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist-dashboard
+          path: dist
 
   deploy:
     needs: build
