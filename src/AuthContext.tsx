@@ -56,8 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const portfolioRef = ref(db, `users/${uid}/portfolio`);
       const snapshot = await get(portfolioRef);
       if (snapshot.exists()) {
-        setPortfolio(snapshot.val());
-        const firstWallet = snapshot.val().wallets[0];
+        const portfolioData = snapshot.val();
+        setPortfolio(portfolioData);
+        const wallets = portfolioData?.wallets || [];
+        const firstWallet = wallets[0];
         setCurrentWallet(firstWallet?.address || null);
       } else {
         // Initialize default portfolio if it doesn't exist
