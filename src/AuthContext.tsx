@@ -58,8 +58,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const snapshot = await get(portfolioRef);
       if (snapshot.exists()) {
         const portfolioData = snapshot.val();
-        setPortfolio(portfolioData);
-        const wallets = portfolioData?.wallets || [];
+
+        // Normalize portfolio data - ensure wallets is always an array
+        const normalizedPortfolio: Portfolio = {
+          id: portfolioData?.id || uid,
+          wallets: Array.isArray(portfolioData?.wallets) ? portfolioData.wallets : [],
+          holdings: portfolioData?.holdings || {},
+          buyPrice: portfolioData?.buyPrice || {},
+          createdAt: portfolioData?.createdAt || Date.now(),
+        };
+
+        setPortfolio(normalizedPortfolio);
+        const wallets = normalizedPortfolio.wallets || [];
         const firstWallet = wallets[0];
         setCurrentWallet(firstWallet?.address || null);
       } else {
@@ -165,12 +175,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   throw new Error("Portfolio not available. Please refresh and try again.");
                 }
 
-                if (!Array.isArray(currentPortfolio.wallets)) {
-                  throw new Error("Portfolio wallets array is invalid");
-                }
+                // Normalize wallets array in case it comes from Firebase in a different format
+                const walletsArray = Array.isArray(currentPortfolio.wallets)
+                  ? currentPortfolio.wallets
+                  : [];
 
                 // Check if wallet already exists
-                if (currentPortfolio.wallets.some(w => w?.address === cleanAddress)) {
+                if (walletsArray.some(w => w?.address === cleanAddress)) {
                   throw new Error("This wallet is already connected to your account");
                 }
 
@@ -182,7 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                 const updatedPortfolio: Portfolio = {
                   ...currentPortfolio,
-                  wallets: [...currentPortfolio.wallets, newWallet],
+                  wallets: [...walletsArray, newWallet],
                   holdings: { ...currentPortfolio.holdings, [cleanAddress]: 0 },
                   buyPrice: { ...currentPortfolio.buyPrice, [cleanAddress]: 0 },
                 };
@@ -235,13 +246,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   throw new Error("Portfolio not initialized");
                 }
 
-                if (!Array.isArray(currentPortfolio.wallets)) {
-                  throw new Error("Portfolio wallets array is invalid");
-                }
+                // Normalize wallets array in case it comes from Firebase in a different format
+                const walletsArray = Array.isArray(currentPortfolio.wallets)
+                  ? currentPortfolio.wallets
+                  : [];
 
                 const updatedPortfolio: Portfolio = {
                   ...currentPortfolio,
-                  wallets: currentPortfolio.wallets.filter((w) => w?.address !== cleanAddress),
+                  wallets: walletsArray.filter((w) => w?.address !== cleanAddress),
                 };
 
                 const holdings = { ...currentPortfolio.holdings };
