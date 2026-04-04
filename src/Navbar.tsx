@@ -182,7 +182,14 @@ export function Navbar({
         </div>
       </div>
 
-      <WalletConnectModal isOpen={walletModalOpen} onClose={() => setWalletModalOpen(false)} />
+      <WalletConnectModal
+        isOpen={walletModalOpen}
+        onClose={() => {
+          setWalletModalOpen(false);
+          // Trigger dashboard refresh when wallet is added
+          onWalletSwitch?.();
+        }}
+      />
     </>
   );
 }

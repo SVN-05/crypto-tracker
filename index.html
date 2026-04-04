@@ -11,6 +11,36 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Polyfill Buffer for browser - must run before any modules load
+      if (typeof globalThis.Buffer === 'undefined') {
+        globalThis.Buffer = class Buffer {
+          constructor(str, encoding) {
+            if (typeof str === 'string') {
+              this.data = new TextEncoder().encode(str);
+            } else if (str instanceof ArrayBuffer) {
+              this.data = new Uint8Array(str);
+            } else if (ArrayBuffer.isView(str)) {
+              this.data = new Uint8Array(str);
+            } else {
+              this.data = new Uint8Array(0);
+            }
+          }
+          static from(str, encoding) {
+            return new Buffer(str, encoding);
+          }
+          static alloc(size) {
+            return new Buffer(new ArrayBuffer(size));
+          }
+          toString(encoding) {
+            return new TextDecoder().decode(this.data);
+          }
+          toJSON() {
+            return { type: 'Buffer', data: Array.from(this.data) };
+          }
+        };
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

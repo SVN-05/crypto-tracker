@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
 import { LoginPage, RegisterPage } from "./AuthPages";
 import Dashboard from "./ces-dashboard";
 import { Navbar } from "./Navbar";
+import "./reown-config"; // Initialize Reown AppKit
 
 export default function AppWrapper() {
   const { user, loading } = useAuth();

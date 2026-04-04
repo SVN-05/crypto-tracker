@@ -7,4 +7,15 @@ export default defineConfig({
   build: {
     outDir: "dist",
   },
+  define: {
+    global: "globalThis",
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        global: "globalThis",
+      },
+    },
+    include: ["buffer"],
+  },
 });

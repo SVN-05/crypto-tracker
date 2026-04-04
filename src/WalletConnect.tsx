@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "./AuthContext";
-import WalletConnectProvider from "@walletconnect/web3-provider";
+import { appKit } from "./reown-config";
 
 export function WalletConnectModal({
   isOpen,
@@ -18,30 +18,45 @@ export function WalletConnectModal({
       setLoading(true);
       setError("");
 
-      const provider = new WalletConnectProvider({
-        infuraId: "27e484dcd9e3efcfd25a83a78777cdf1",
-        rpc: {
-          137: "https://polygon-rpc.com/",
-        },
-        chainId: 137,
-      });
-
-      await provider.enable();
-
-      const accounts = provider.accounts;
-      const chainId = provider.chainId;
-
-      if (accounts && accounts.length > 0) {
-        await addWallet(accounts[0], chainId);
-        setError("");
-        onClose();
-      } else {
-        setError("No account found. Please check your wallet.");
-      }
+      // Open Reown AppKit modal - it handles all the QR code and connection logic
+      appKit.open();
     } catch (e: any) {
-      console.error("WalletConnect error:", e);
-      setError(e.message || "Failed to connect wallet");
+      console.error("Reown AppKit error:", e);
+      setError("Failed to open wallet connection");
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmWalletConnection = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      // Get the currently connected account from AppKit
+      const account = appKit.getAccount();
+      console.log("Current account:", account);
+
+      if (!account?.address) {
+        setError("No wallet connected. Please connect your wallet first.");
+        setLoading(false);
+        return;
+      }
+
+      console.log("Adding wallet:", account.address);
+      // Add wallet to portfolio - wait for it to complete
+      const result = await addWallet(account.address, 137); // 137 = Polygon
+      console.log("Wallet added successfully:", result);
+
+      // Give state updates time to propagate
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      setLoading(false);
+      console.log("Closing modal");
+      onClose();
+    } catch (e: any) {
+      console.error("Error adding wallet:", e);
+      setError(e.message || "Failed to add wallet to portfolio");
       setLoading(false);
     }
   };
@@ -60,7 +75,7 @@ export function WalletConnectModal({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 1000,
+        zIndex: 999,
       }}
     >
       <div
@@ -85,8 +100,11 @@ export function WalletConnectModal({
             lineHeight: 1.6,
           }}
         >
-          Use WalletConnect to connect your TokenPocket wallet or other Web3 wallet. This will allow
-          auto-fetching your CES token balance.
+          <strong style={{ color: "#10b981" }}>Step 1:</strong> Click "Open Reown Connect" to open wallet selector
+          <br />
+          <strong style={{ color: "#10b981" }}>Step 2:</strong> Scan QR with TokenPocket and approve
+          <br />
+          <strong style={{ color: "#34d399" }}>Step 3:</strong> Click "Confirm & Save Wallet" to add to portfolio
         </div>
 
         {error && (
@@ -123,11 +141,33 @@ export function WalletConnectModal({
             transition: "all 0.2s",
           }}
         >
-          {loading ? "Connecting..." : "📱 WalletConnect"}
+          {loading ? "Opening..." : "📱 Open Reown Connect"}
+        </button>
+
+        <button
+          onClick={confirmWalletConnection}
+          disabled={loading}
+          style={{
+            width: "100%",
+            padding: "12px 16px",
+            background: loading ? "rgba(59,182,122,0.3)" : "#34d399",
+            color: "#000",
+            border: "none",
+            borderRadius: 8,
+            fontWeight: 700,
+            cursor: loading ? "not-allowed" : "pointer",
+            fontSize: 14,
+            fontFamily: "inherit",
+            marginBottom: 12,
+            transition: "all 0.2s",
+          }}
+        >
+          {loading ? "Confirming..." : "✓ Confirm & Save Wallet"}
         </button>
 
         <button
           onClick={onClose}
+          disabled={loading}
           style={{
             width: "100%",
             padding: "10px 16px",
@@ -136,10 +176,11 @@ export function WalletConnectModal({
             border: "1px solid rgba(255,255,255,0.2)",
             borderRadius: 8,
             fontWeight: 600,
-            cursor: "pointer",
+            cursor: loading ? "not-allowed" : "pointer",
             fontSize: 14,
             fontFamily: "inherit",
             transition: "all 0.2s",
+            opacity: loading ? 0.5 : 1,
           }}
         >
           Cancel
@@ -151,9 +192,13 @@ export function WalletConnectModal({
             color: "rgba(255,255,255,0.35)",
             marginTop: 16,
             textAlign: "center",
+            lineHeight: 1.5,
           }}
         >
-          Supports: Polygon (137)
+          <div>Powered by Reown • Polygon Network</div>
+          <div style={{ marginTop: 8, color: "rgba(255,255,255,0.25)" }}>
+            Your wallet address will be saved to your Firebase account
+          </div>
         </div>
       </div>
     </div>
