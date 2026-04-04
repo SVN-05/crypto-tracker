@@ -1076,12 +1076,32 @@ export default function Dashboard() {
               <div style={cardStyle}>
                 <div style={labelStyle}>&nbsp;</div>
                 <button
-                  onClick={() => {
-                    const holdingsToSave = autoFetchedBalance !== null ? autoFetchedBalance : parseFloat(holdings);
+                  onClick={async () => {
+                    const holdingsToSave = autoFetchedBalance !== null ? autoFetchedBalance : parseFloat(holdings) || 0;
                     const buyPriceToSave = parseFloat(buyPrice) || 0;
-                    if (currentWallet) {
-                      updateHoldings(currentWallet, holdingsToSave, buyPriceToSave);
+
+                    if (!currentWallet) {
+                      alert("No wallet connected");
+                      return;
+                    }
+
+                    if (holdingsToSave <= 0) {
+                      alert("Please enter holdings > 0");
+                      return;
+                    }
+
+                    if (buyPriceToSave <= 0) {
+                      alert("Please enter buy price > 0");
+                      return;
+                    }
+
+                    try {
+                      await updateHoldings(currentWallet, holdingsToSave, buyPriceToSave);
                       setHoldings(holdingsToSave.toString());
+                      setBuyPrice(buyPriceToSave.toString());
+                      alert("✅ Saved to Firebase!");
+                    } catch (e: any) {
+                      alert("❌ Error: " + (e?.message || "Failed to save"));
                     }
                   }}
                   style={{
