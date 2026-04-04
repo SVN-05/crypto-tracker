@@ -8,6 +8,7 @@ import {
   User as FirebaseUser
 } from "firebase/auth";
 import { ref, get, set } from "firebase/database";
+import { JsonRpcProvider, Contract, formatUnits } from "ethers";
 
 export interface ConnectedWallet {
   address: string;
@@ -255,17 +256,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const getWalletBalance = useCallback(async (walletAddress: string): Promise<number> => {
     try {
-      const provider = new (window as any).ethers.providers.JsonRpcProvider(
-        "https://polygon-rpc.com/"
-      );
+      const provider = new JsonRpcProvider("https://polygon-rpc.com/");
 
       const TOKEN_ADDRESS = "0x1Bdf71EDe1a4777dB1EebE7232BcdA20d6FC1610";
       const TOKEN_ABI = ["function balanceOf(address account) external view returns (uint256)"];
 
-      const contract = new (window as any).ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, provider);
+      const contract = new Contract(TOKEN_ADDRESS, TOKEN_ABI, provider);
       const balance = await contract.balanceOf(walletAddress);
 
-      return parseFloat((window as any).ethers.utils.formatUnits(balance, 18));
+      return parseFloat(formatUnits(balance, 18));
     } catch (e) {
       console.error("Error fetching balance:", e);
       return 0;
