@@ -58,6 +58,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setPortfolio(snapshot.val());
         const firstWallet = snapshot.val().wallets[0];
         setCurrentWallet(firstWallet?.address || null);
+      } else {
+        // Initialize default portfolio if it doesn't exist
+        const newPortfolio: Portfolio = {
+          id: uid,
+          wallets: [],
+          holdings: {},
+          buyPrice: {},
+          createdAt: Date.now(),
+        };
+        await set(portfolioRef, newPortfolio);
+        setPortfolio(newPortfolio);
+        setCurrentWallet(null);
       }
     } catch (e) {
       console.error("Error loading portfolio:", e);
@@ -119,13 +131,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const addWallet = useCallback(
     async (address: string, chainId: number) => {
-      if (!user) return;
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
 
       // Read current portfolio from state to avoid stale closure
       return new Promise<void>((resolve, reject) => {
         setPortfolio((currentPortfolio) => {
           if (!currentPortfolio) {
-            reject(new Error("Portfolio not initialized"));
+            reject(new Error("Portfolio not available. Please try again."));
+            return currentPortfolio;
+          }
+
+          // Check if wallet already exists
+          if (currentPortfolio.wallets.some(w => w.address === address.toLowerCase())) {
+            reject(new Error("Wallet already connected"));
             return currentPortfolio;
           }
 
@@ -148,7 +168,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setCurrentWallet(address.toLowerCase());
               resolve();
             })
-            .catch(reject);
+            .catch((err) => {
+              reject(new Error(`Failed to save wallet: ${err.message}`));
+            });
 
           return updatedPortfolio;
         });
